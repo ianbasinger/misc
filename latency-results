@@ -1,0 +1,101 @@
+# formatting is not good/consistent, will fix later
+$lp_flg = $true
+$lp_b_exec = $false
+
+while ($lp_flg) {
+    try{
+    $v = 1..10 | ForEach-Object {Get-Random -Minimum 1 -Maximum 100}
+    $t = $v | Measure-Object -Sum | Select-Object -ExpandProperty Sum
+    $e = "($($v[0]) + $($v[1])) * ($($v[2]) - $($v[3])) / ($($v[4]) + $($v[5]))"
+    $r = Invoke-Expression $e
+    $v2 = 1..10 | ForEach-Object {Get-Random -Minimum 50 -Maximum 150}
+    $t2 = $v2 | Measure-Object -Sum | Select-Object -ExpandProperty Sum
+    $e2 = "($($v2[0]) - $($v2[1])) * ($($v2[2]) + $($v2[3])) / ($($v2[4]) - $($v2[5]))"
+    $r2 = Invoke-Expression $e2
+    }catch{Write-Host "Was not able to evaluate the values, ISE may not be running correctly" -ForegroundColor Red}
+
+    $dt = Read-Host "Enter the destination hostname"
+    try {
+        $ipadr = [System.Net.Dns]::GetHostAddresses($dt)[0].IPAddressToString
+        Write-Host "Resolved IP address for $dt : $ipadr"}catch{
+        Write-Host "Could not resolve IP address for $dt. Please check the hostname." -ForegroundColor Red
+        $ipadr = "127.0.0.1"}
+    $dt = $ipadr
+    $pr = "ping_results.txt"
+    $fp = Read-Host "Enter output file path"
+    $lp = $fp + '\' + $pr
+    while ($lp_flg) {
+        Write-Host "Enter 1 to ping $dt"
+        Write-Host "Enter 2 to analyze results"
+        Write-Host "Enter 3 to clear the log file"
+        Write-Host "Enter 4 to exit"
+        $cc = Read-Host "Enter your choice"
+
+switch ($cc){
+1{
+try{
+$dgw = (Get-NetRoute | Where-Object { $_.DestinationPrefix -eq '0.0.0.0/0' }).NextHop}catch{
+Write-Host "Could not find adapter with gateway of last resort" -ForegroundColor Red}
+    try{$ntwr = (Get-NetAdapter | Where-Object { $_.Status -eq 'Up' })}catch{Write-Host "Could not find an interface within 'up' state" -ForegroundColor Red}
+    try{
+    $na = Get-NetAdapter
+    $ea = $na | Where-Object { $_.Name -eq 'Ethernet' }
+    $ip4 = $ea | Get-NetIPAddress -AddressFamily IPv4 | Select-Object -ExpandProperty IPAddress
+    Write-Host $ip4}catch{Write-Host "Unable to get IPv4 address of Ethernet adapter" -ForegroundColor Red}
+    $nt = $ip4 + ' ' + $ntwr
+    $a = "Network interface used:"
+    $a + ' ' + $nt| Out-File -Append -FilePath $lp
+    try{ping.exe -t $dt | ForEach-Object{
+        $ts = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+         "$ts - $_" | Out-File -Append -FilePath $lp
+        Write-Host "Pinging $dt $ts" -ForegroundColor Green
+        if ($_ -match "Request timed out") {
+         Write-Host "Timeout detected: $_" -ForegroundColor Yellow
+         "$ts Target $dt $_" | Out-File -Append -FilePath $lp} elseif ($_ -match "TTL expired in transit") {
+                            Write-Host "TTL expired: $_" -ForegroundColor Cyan
+                            "$ts Target $dt $_" | Out-File -Append -FilePath $lp
+                        }elseif ($_ -match "Destination host unreachable") {
+                            Write-Host "Host unreachable: $_" -ForegroundColor Magenta
+                            "$ts Target $dt $_" | Out-File -Append -FilePath $lp
+                        }else{Write-Host "Ping results are being appended to $lp" -ForegroundColor Green}}}catch{ Write-Host "Error occurred: $_" -ForegroundColor Red
+                }
+            }
+2{
+try{
+$tt = 0
+$ct = 0
+$hv = [double]::NegativeInfinity
+$lv = [double]::PositiveInfinity
+Get-Content -Path $lp | ForEach-Object{
+                        if ($_ -match "time=(\d+)ms"){
+                            $tv = [int]$matches[1]
+                            $tt += $tv
+                            $ct++
+                            $hv = [math]::Max($hv, $tv)
+                            $lv = [math]::Min($lv, $tv)}
+                    }
+                    $av = $tt / $ct
+                    $fhv = "IP Address $dt highest value: $($hv) ms"
+                    $flv = "IP Address $dt lowest value: $($lv) ms"
+                    $fav = "IP Address $dt average value: $($av) ms"
+                    Write-Host $fhv
+                    Write-Host $flv
+                    Write-Host $fav
+                   
+                   
+
+                } catch {
+                    Write-Host "Error occurred: $_" -ForegroundColor Red
+                }
+            }
+3{
+    try{
+    Clear-Content $lp
+    Write-Host "Cleared $lp file" -ForegroundColor Green
+    } catch{Write-Host "Error occured, unable to clear log file: $_" -ForegroundColor Red}}
+
+4{Write-Host "Exiting"
+$lp_flg = $false}
+        }
+    }
+}
